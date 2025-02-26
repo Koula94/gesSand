@@ -1,0 +1,92 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+model Truck {
+  id                String      @id @default(uuid())
+  licensePlate      String      @unique
+  driver            Driver      @relation(fields: [driverId], references: [id])
+  driverId          String
+  emptyWeight       Float
+  transactions      Transaction[]
+  createdAt         DateTime    @default(now())
+  updatedAt         DateTime    @updatedAt
+
+  @@index([driverId])
+}
+
+model Driver {
+  id          String    @id @default(uuid())
+  name        String
+  phone       String?
+  trucks      Truck[]
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+}
+
+model Client {
+  id            String        @id @default(uuid())
+  name          String
+  company       String?
+  phone         String?
+  email         String?
+  transactions  Transaction[]
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+}
+
+model Transaction {
+  id              String    @id @default(uuid())
+  truck           Truck     @relation(fields: [truckId], references: [id])
+  truckId         String
+  client          Client    @relation(fields: [clientId], references: [id])
+  clientId        String
+  entryTime       DateTime  @default(now())
+  exitTime        DateTime?
+  sandWeight      Float?
+  totalWeight     Float?
+  payment         Payment?
+  status          TransactionStatus @default(PENDING)
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@index([truckId])
+  @@index([clientId])
+}
+
+model Payment {
+  id              String          @id @default(uuid())
+  transaction     Transaction     @relation(fields: [transactionId], references: [id])
+  transactionId   String         @unique
+  amount          Float
+  method          PaymentMethod
+  status          PaymentStatus   @default(PENDING)
+  bankReference   String?
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+
+  @@index([transactionId])
+}
+
+enum TransactionStatus {
+  PENDING
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+}
+
+enum PaymentMethod {
+  CASH
+  BANK_TRANSFER
+}
+
+enum PaymentStatus {
+  PENDING
+  COMPLETED
+  FAILED
+}
