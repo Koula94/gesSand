@@ -31,10 +31,62 @@ import {
 import { useToast } from "@/hooks/use-toast"
 
 const formSchema = z.object({
-  amount: z.string().min(1, "Le montant est requis"),
+  amount: z.string().min(1, "Le montant est requis").refine(
+    (val) => {
+      const amount = parseFloat(val);
+      return !isNaN(amount) && amount > 0;
+    },
+    {
+      message: "Le montant doit être un nombre positif"
+    }
+  ),
   method: z.enum(["CASH", "BANK_TRANSFER"]),
-  bankReference: z.string().optional(),
+  bankReference: z.string().optional().superRefine(
+    (val, ctx) => {
+      if (ctx.parent?.method === "BANK_TRANSFER") {
+        if (!val || val.trim().length === 0) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            message: "La référence bancaire est requise pour les virements"
+          });
+        }
+      }
+    }
+  ),
+  receivedAmount: z.string().optional().superRefine(
+    (val, ctx) => {
+      if (ctx.parent?.method === "CASH") {
+        if (!val || val.trim() === "") {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            message: "Le montant reçu est requis pour les paiements en espèces"
+          });
+          return;
+        }
+
+        const received = parseFloat(val);
+        const amount = parseFloat(ctx.parent?.amount || "0");
+
+        if (isNaN(received) || received < 0) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            message: "Le montant reçu doit être un nombre positif"
+          });
+          return;
+        }
+
+        if (received < amount) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            message: "Le montant reçu doit être supérieur ou égal au montant à payer"
+          });
+        }
+      }
+    }
+  ),
+  change: z.number().optional()
 })
+
 
 interface PaymentDialogProps {
   open: boolean
@@ -58,6 +110,8 @@ export function PaymentDialog({
       amount: "",
       method: "CASH",
       bankReference: "",
+      receivedAmount: "",
+      change: 0,
     },
   })
 
@@ -70,12 +124,14 @@ export function PaymentDialog({
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          status: "COMPLETED",
+          status: values.method === "BANK_TRANSFER" ? "IN_PROGRESS" : "COMPLETED",
           payment: {
             amount: parseFloat(values.amount),
             method: values.method,
-            status: "COMPLETED",
+            status: values.method === "BANK_TRANSFER" ? "PENDING" : "COMPLETED",
             bankReference: values.method === "BANK_TRANSFER" ? values.bankReference : undefined,
+            receivedAmount: values.method === "CASH" ? parseFloat(values.receivedAmount || values.amount) : undefined,
+            change: values.method === "CASH" ? values.change : undefined,
           },
         }),
       })
@@ -121,19 +177,72 @@ export function PaymentDialog({
               name="amount"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Montant (DH)</FormLabel>
+                  <FormLabel>Montant à Payer (DH)</FormLabel>
                   <FormControl>
                     <Input
                       type="number"
                       step="0.01"
                       placeholder="0.00"
                       {...field}
+                      onChange={(e) => {
+                        field.onChange(e);
+                        const amount = parseFloat(e.target.value);
+                        const received = parseFloat(form.getValues("receivedAmount") || "0");
+                        if (!isNaN(amount) && !isNaN(received)) {
+                          form.setValue("change", received - amount);
+                        }
+                      }}
                     />
                   </FormControl>
                   <FormMessage />
                 </FormItem>
               )}
             />
+
+            {form.watch("method") === "CASH" && (
+              <>
+                <FormField
+                  control={form.control}
+                  name="receivedAmount"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Montant Reçu (DH)</FormLabel>
+                      <FormControl>
+                        <Input
+                          type="number"
+                          step="0.01"
+                          placeholder="0.00"
+                          required
+                          {...field}
+                          onChange={(e) => {
+                            field.onChange(e);
+                            const amount = parseFloat(form.getValues("amount") || "0");
+                            const received = parseFloat(e.target.value || "0");
+                            if (!isNaN(amount) && !isNaN(received)) {
+                              form.setValue("change", Math.max(0, received - amount));
+                            }
+                          }}
+                        />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+
+                <div className="p-2 bg-muted rounded-md">
+                  <div className="text-sm font-medium">Récapitulatif:</div>
+                  <div className="text-sm text-muted-foreground mt-1">
+                    Montant à payer: {parseFloat(form.watch("amount") || "0").toFixed(2)} DH
+                  </div>
+                  <div className="text-sm text-muted-foreground">
+                    Montant reçu: {parseFloat(form.watch("receivedAmount") || "0").toFixed(2)} DH
+                  </div>
+                  <div className="text-sm font-medium text-primary mt-1">
+                    Monnaie à rendre: {form.watch("change")?.toFixed(2) || "0.00"} DH
+                  </div>
+                </div>
+              </>
+            )}
 
             <FormField
               control={form.control}

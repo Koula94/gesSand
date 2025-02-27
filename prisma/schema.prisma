@@ -44,7 +44,7 @@ model Transaction {
   id              String    @id @default(uuid())
   truck           Truck     @relation(fields: [truckId], references: [id])
   truckId         String
-  client          Client    @relation(fields: [clientId], references: [id])
+  client          Client   @relation(fields: [clientId], references: [id])
   clientId        String
   entryTime       DateTime  @default(now())
   exitTime        DateTime?
